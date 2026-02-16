@@ -29,22 +29,33 @@ def load_staff_config():
 
 staff_map = load_staff_config()
 
+def save_staff_config(new_config):
+    try:
+        with open("staff_config.json", "w", encoding="utf-8") as f:
+            json.dump(new_config, f, ensure_ascii=False, indent=4)
+        return True
+    except Exception as e:
+        st.error(f"儲存失敗: {e}")
+        return False
+
 # 3. 側邊欄設定
 with st.sidebar:
     st.title("🚒 勤務排班系統")
+    app_mode = st.radio("功能選擇", ["排班執行", "人員管理"])
     st.markdown("---")
     
-    # 檔案上傳
-    uploaded_file = st.file_uploader("1. 上傳勤務表 Excel", type=["xlsx", "xls", "csv"])
-    
-    # 日期輸入
-    target_date = st.number_input("2. 輸入今日日期 (數字)", min_value=2, max_value=31, value=20, step=1, help="系統會自動計算昨日並進行對照")
-    
-    # 執行按鈕
-    run_btn = st.button("🚀 執行排班", type="primary", use_container_width=True)
-    
-    st.markdown("---")
-    st.caption("說明：藍色字體為 2xx 專救人員")
+    if app_mode == "排班執行":
+        # 檔案上傳
+        uploaded_file = st.file_uploader("1. 上傳勤務表 Excel", type=["xlsx", "xls", "csv"])
+        
+        # 日期輸入
+        target_date = st.number_input("2. 輸入今日日期 (數字)", min_value=2, max_value=31, value=20, step=1, help="系統會自動計算昨日並進行對照")
+        
+        # 執行按鈕
+        run_btn = st.button("🚀 執行排班", type="primary", use_container_width=True)
+        
+        st.markdown("---")
+        st.caption("說明：藍色字體為 2xx 專救人員")
 
 # 4. 輔助函式：格式化姓名 (2xx 變藍色)
 def format_names(names_input):
@@ -102,56 +113,89 @@ def render_day_schedule(title, schedule_data, night_shift):
         st.info("🌙 **大夜名單**: 無")
 
 # 5. 主程式邏輯
-if run_btn:
-    if not uploaded_file:
-        st.error("請先上傳 Excel 檔案！")
-    else:
-        try:
-            # 讀取檔案
-            if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file, header=2)
-            else:
-                df = pd.read_excel(uploaded_file, header=2)
-            df.rename(columns={df.columns[0]: '日期'}, inplace=True)
+if app_mode == "人員管理":
+    st.subheader("⚙️ 人員名單管理")
+    st.info("可在下方表格直接編輯、新增或刪除人員，完成後請點擊「儲存設定」。")
+    
+    # 準備資料
+    current_data = [{"姓名": k, "ID": v} for k, v in staff_map.items()]
+    # 簡單排序
+    current_data.sort(key=lambda x: str(x["ID"]))
+    
+    df_staff = pd.DataFrame(current_data)
+    
+    edited_df = st.data_editor(
+        df_staff,
+        num_rows="dynamic",
+        column_config={
+            "姓名": st.column_config.TextColumn("姓名", required=True),
+            "ID": st.column_config.TextColumn("ID", required=True, help="1xx:隊員, 2xx:專救, 4xx:役男, A/B/C:幹部"),
+        },
+        use_container_width=True,
+        hide_index=True
+    )
+    
+    if st.button("💾 儲存設定"):
+        new_map = {}
+        for _, row in edited_df.iterrows():
+            if row["姓名"] and row["ID"]:
+                new_map[row["姓名"]] = str(row["ID"]).strip()
+        
+        if save_staff_config(new_map):
+            st.success("設定已儲存！")
+            st.rerun()
 
-            # 計算日期
-            yesterday = target_date - 1
-            
-            # --- 執行昨日排班 (獲取狀態與顯示用) ---
-            res_prev, night_prev, _ = logic.generate_schedule(df, yesterday, staff_map)
-            
-            # 取得昨日休假與最後一班狀態 (為了傳遞給今日邏輯，確保連續性)
-            status_prev = logic.get_staff_status(df, yesterday, staff_map)
-            prev_day_off = [k for k, v in status_prev.items() if v['stat'] == 'OFF']
-            
-            last_watch = ""
-            last_ems = []
-            if res_prev:
-                last_slot = res_prev[-1]
-                last_watch = last_slot['watch']
-                last_ems = last_slot['91'] + last_slot['92']
+elif app_mode == "排班執行":
+    if run_btn:
+        if not uploaded_file:
+            st.error("請先上傳 Excel 檔案！")
+        else:
+            try:
+                # 讀取檔案
+                if uploaded_file.name.endswith('.csv'):
+                    df = pd.read_csv(uploaded_file, header=2)
+                else:
+                    df = pd.read_excel(uploaded_file, header=2)
+                df.rename(columns={df.columns[0]: '日期'}, inplace=True)
 
-            # --- 執行今日排班 ---
-            res_curr, night_curr, _ = logic.generate_schedule(
-                df, target_date, staff_map,
-                prev_night_list=night_prev,
-                prev_day_off_list=prev_day_off,
-                last_night_watch=last_watch,
-                last_night_ems=last_ems
-            )
-
-            # --- 介面顯示 (兩欄佈局) ---
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                render_day_schedule(f"📅 昨日 ({yesterday}日)", res_prev, night_prev)
+                # 計算日期
+                yesterday = target_date - 1
                 
-            with col2:
-                render_day_schedule(f"📅 今日 ({target_date}日)", res_curr, night_curr)
+                # --- 執行昨日排班 (獲取狀態與顯示用) ---
+                res_prev, night_prev, _ = logic.generate_schedule(df, yesterday, staff_map)
+                
+                # 取得昨日休假與最後一班狀態 (為了傳遞給今日邏輯，確保連續性)
+                status_prev = logic.get_staff_status(df, yesterday, staff_map)
+                prev_day_off = [k for k, v in status_prev.items() if v['stat'] == 'OFF']
+                
+                last_watch = ""
+                last_ems = []
+                if res_prev:
+                    last_slot = res_prev[-1]
+                    last_watch = last_slot['watch']
+                    last_ems = last_slot['91'] + last_slot['92']
 
-        except Exception as e:
-            st.error(f"執行發生錯誤: {e}")
-            # st.exception(e) # 開發時可取消註解以查看詳細錯誤
-else:
-    # 初始畫面提示
-    st.info("👈 請在左側側邊欄上傳檔案並點擊「執行排班」")
+                # --- 執行今日排班 ---
+                res_curr, night_curr, _ = logic.generate_schedule(
+                    df, target_date, staff_map,
+                    prev_night_list=night_prev,
+                    prev_day_off_list=prev_day_off,
+                    last_night_watch=last_watch,
+                    last_night_ems=last_ems
+                )
+
+                # --- 介面顯示 (兩欄佈局) ---
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    render_day_schedule(f"📅 昨日 ({yesterday}日)", res_prev, night_prev)
+                    
+                with col2:
+                    render_day_schedule(f"📅 今日 ({target_date}日)", res_curr, night_curr)
+
+            except Exception as e:
+                st.error(f"執行發生錯誤: {e}")
+                # st.exception(e) # 開發時可取消註解以查看詳細錯誤
+    else:
+        # 初始畫面提示
+        st.info("👈 請在左側側邊欄上傳檔案並點擊「執行排班」")
