@@ -202,13 +202,6 @@ elif app_mode == "排班執行":
                     last_night_ems=last_ems
                 )
 
-                # --- 介面顯示 (單日) ---
-                render_day_schedule(f"📅 今日 ({target_date}日) 勤務表", res_curr, night_curr)
-                
-                # --- 顯示人員狀態與時數 ---
-                st.markdown("---")
-                st.subheader("📊 今日人員狀態與時數")
-                
                 # 取得今日所有人的狀態 (含休假)
                 status_curr = logic.get_staff_status(df, target_date, staff_map)
                 # 建立時數查詢表 (staff_stats 只包含上班的人)
@@ -224,19 +217,37 @@ elif app_mode == "排班執行":
                         "本日時數": h
                     })
                 
-                # 轉為 DataFrame 並顯示
-                df_stats = pd.DataFrame(table_data).sort_values("姓名")
-                st.dataframe(df_stats, use_container_width=True, hide_index=True)
-                
-                # --- 儲存按鈕 ---
-                if st.button("💾 儲存今日勤務表"):
-                    save_to_history(target_date, res_curr, night_curr, table_data)
-                    st.success(f"已成功儲存 {target_date} 日的勤務表！")
+                # --- 將結果存入 Session State ---
+                st.session_state['current_result'] = {
+                    'date': target_date,
+                    'schedule': res_curr,
+                    'night_shift': night_curr,
+                    'stats': table_data
+                }
 
             except Exception as e:
                 st.error(f"執行發生錯誤: {e}")
                 # st.exception(e) # 開發時可取消註解以查看詳細錯誤
-    else:
+    
+    # --- 檢查 Session State 是否有資料並顯示 ---
+    if 'current_result' in st.session_state:
+        result = st.session_state['current_result']
+        
+        # 顯示排班表
+        render_day_schedule(f"📅 今日 ({result['date']}日) 勤務表", result['schedule'], result['night_shift'])
+        
+        # 顯示統計
+        st.markdown("---")
+        st.subheader("📊 今日人員狀態與時數")
+        df_stats = pd.DataFrame(result['stats']).sort_values("姓名")
+        st.dataframe(df_stats, use_container_width=True, hide_index=True)
+        
+        # 儲存按鈕 (現在位於 if run_btn 之外，可以正常運作)
+        if st.button("💾 儲存今日勤務表"):
+            save_to_history(result['date'], result['schedule'], result['night_shift'], result['stats'])
+            st.success(f"已成功儲存 {result['date']} 日的勤務表！")
+            
+    elif not run_btn:
         # 初始畫面提示
         st.info("👈 請在左側側邊欄上傳檔案並點擊「執行排班」")
 
