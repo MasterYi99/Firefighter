@@ -236,6 +236,9 @@ elif app_mode == "排班執行":
             except Exception as e:
                 st.error(f"執行發生錯誤: {e}")
                 # st.exception(e) # 開發時可取消註解以查看詳細錯誤
+    else:
+        # 初始畫面提示
+        st.info("👈 請在左側側邊欄上傳檔案並點擊「執行排班」")
 
 elif app_mode == "歷史查詢":
     st.subheader("🗂️ 歷史勤務表查詢")
@@ -254,6 +257,3 @@ elif app_mode == "歷史查詢":
             st.markdown("---")
             st.subheader("📊 當日人員狀態與時數")
             st.dataframe(pd.DataFrame(record['stats']), use_container_width=True, hide_index=True)
-
-    else:
-        # 初始畫面提示
